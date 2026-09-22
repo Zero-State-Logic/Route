@@ -5,7 +5,7 @@
 <div align="center">
 
 <!-- animated live-map hero — loops on GitHub (SVG + SMIL) -->
-<img src="docs/route-hero.svg" width="820" alt="Route — a live city map with a vehicle driving a route from pickup to destination"/>
+<img src="route-hero.svg" width="820" alt="Route — a live city map with a vehicle driving a route from pickup to destination"/>
 
 <br/>
 
@@ -133,7 +133,7 @@ ever fail, it falls back to a self-contained **"Route City"** canvas map with it
 Dijkstra router, so the app never shows a broken screen.
 
 <div align="center">
-<img src="docs/preview.svg" width="820" alt="Route ride screen — a live map with the driver arriving and a ride card showing the assigned driver, fare breakdown, wallet payment, and safety controls"/>
+<img src="preview.svg" width="820" alt="Route ride screen — a live map with the driver arriving and a ride card showing the assigned driver, fare breakdown, wallet payment, and safety controls"/>
 </div>
 
 ---
