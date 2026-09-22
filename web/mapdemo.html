@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route — live ride map (free stack demo)</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;600;700&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+:root{--accent:#d8973c;--on-accent:#2c1d06;--ink:#273e47;--surface:#fff;--muted:#5d6f79;--line:#e7dfcd;--rose:#a4243b;}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;font-family:"Hanken Grotesk",system-ui,sans-serif;color:var(--ink)}
+#map{position:absolute;inset:0}
+.leaflet-container{background:#eef1f5}
+.carIcon{font-size:26px;line-height:26px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.4));transition:transform .1s linear}
+.pin{font-size:30px;line-height:30px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.35))}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:1000;background:var(--surface);border-radius:18px 18px 0 0;box-shadow:0 -8px 30px rgba(39,62,71,.18);padding:16px 18px 20px;font-family:"Hanken Grotesk",sans-serif}
+.sheet .grab{width:40px;height:4px;border-radius:9px;background:var(--line);margin:2px auto 12px}
+.status{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:19px}
+.eta{color:var(--muted);font-size:14px;margin-top:2px}
+.bar{height:6px;border-radius:9px;background:#eef1f5;overflow:hidden;margin:12px 0}
+.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .4s ease}
+.driver{display:flex;align-items:center;gap:12px;margin-top:6px}
+.ava{width:46px;height:46px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:18px}
+.driver b{font-size:15px}.driver span{display:block;color:var(--muted);font-size:13px}
+.badge{margin-left:auto;background:#f7ebd4;color:#7a5214;font-weight:700;font-size:13px;padding:6px 12px;border-radius:999px}
+.brand{position:absolute;top:12px;left:12px;z-index:1000;background:var(--surface);border-radius:12px;padding:8px 14px;font-family:"Bricolage Grotesque",sans-serif;font-weight:700;display:flex;align-items:center;gap:8px;box-shadow:0 4px 14px rgba(39,62,71,.12)}
+.logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-weight:700}
+.replay{position:absolute;top:12px;right:12px;z-index:1000;border:0;background:var(--ink);color:#fff;font-weight:600;padding:9px 14px;border-radius:10px;cursor:pointer;font-family:inherit}
+.note{position:absolute;bottom:190px;left:12px;right:12px;z-index:1000;background:rgba(39,62,71,.9);color:#fff;font-size:12.5px;padding:8px 12px;border-radius:10px;text-align:center}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="brand"><span class="logo">R</span> Route</div>
+<button class="replay" id="replay">Replay ride</button>
+<div class="note" id="note">Loading real map (OpenStreetMap) + road route (OSRM) — 100% free, no API key…</div>
+<div class="sheet">
+  <div class="grab"></div>
+  <div class="status" id="status">Finding you a driver…</div>
+  <div class="eta" id="eta">Karachi · Clifton → Saddar</div>
+  <div class="bar"><i id="prog"></i></div>
+  <div class="driver">
+    <div class="ava">OK</div>
+    <div><b id="dName">Omar Khan</b><span id="dCar">Suzuki Mehran · AEP-431 · ★ 4.9</span></div>
+    <div class="badge" id="fare">Rs 320</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+// ---- Free stack: Leaflet + OpenStreetMap tiles + OSRM routing. No API key. ----
+const PICKUP = [24.8138, 67.0300];   // Clifton
+const DROPOFF = [24.8625, 67.0104];  // Saddar
+const DRIVER0 = [24.8095, 67.0365];  // driver starts a few blocks from pickup
+
+const map = L.map('map', { zoomControl: false }).setView([24.84, 67.02], 14);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19, attribution: '© OpenStreetMap'
+}).addTo(map);
+
+function pin(latlng, glyph) {
+  return L.marker(latlng, { icon: L.divIcon({ className: '', html: '<div class="pin">' + glyph + '</div>', iconSize: [30, 30], iconAnchor: [15, 28] }) }).addTo(map);
+}
+pin(PICKUP, '📍');
+pin(DROPOFF, '🏁');
+
+const car = L.marker(DRIVER0, { icon: L.divIcon({ className: '', html: '<div class="carIcon" id="car">🚕</div>', iconSize: [26, 26], iconAnchor: [13, 13] }), zIndexOffset: 1000 }).addTo(map);
+
+const $ = id => document.getElementById(id);
+function setStatus(t, sub) { $('status').textContent = t; if (sub) $('eta').textContent = sub; }
+function setProg(p) { $('prog').style.width = Math.round(p * 100) + '%'; }
+
+async function osrm(a, b) {
+  const url = 'https://router.project-osrm.org/route/v1/driving/' + a[1] + ',' + a[0] + ';' + b[1] + ',' + b[0] + '?overview=full&geometries=geojson';
+  try {
+    const r = await fetch(url);
+    const j = await r.json();
+    if (j.routes && j.routes[0]) {
+      return { path: j.routes[0].geometry.coordinates.map(c => [c[1], c[0]]), dur: j.routes[0].duration };
+    }
+  } catch (e) {}
+  return { path: [a, b], dur: 300 };  // graceful fallback: straight line
+}
+
+function bearing(a, b) {
+  const dy = b[0] - a[0], dx = b[1] - a[1];
+  return Math.atan2(dx, dy) * 180 / Math.PI;  // 0 = north
+}
+
+function animate(path, seconds, onDone) {
+  const D = [0];
+  for (let i = 1; i < path.length; i++) {
+    const d = Math.hypot(path[i][0] - path[i-1][0], path[i][1] - path[i-1][1]);
+    D.push(D[i-1] + d);
+  }
+  const total = D[D.length - 1] || 1;
+  const start = performance.now();
+  function frame(now) {
+    const t = Math.min(1, (now - start) / (seconds * 1000));
+    const want = t * total;
+    let i = 1;
+    while (i < D.length && D[i] < want) i++;
+    const p0 = path[i-1], p1 = path[Math.min(i, path.length-1)];
+    const segLen = D[i] - D[i-1] || 1;
+    const f = (want - D[i-1]) / segLen;
+    const lat = p0[0] + (p1[0]-p0[0]) * f, lng = p0[1] + (p1[1]-p0[1]) * f;
+    car.setLatLng([lat, lng]);
+    const el = document.getElementById('car');
+    if (el) el.style.transform = 'rotate(' + bearing(p0, p1) + 'deg)';
+    setProg(t);
+    if (t < 1) requestAnimationFrame(frame); else onDone && onDone();
+  }
+  requestAnimationFrame(frame);
+}
+
+let toPickupLine, toDestLine;
+async function runRide() {
+  if (toPickupLine) map.removeLayer(toPickupLine);
+  if (toDestLine) map.removeLayer(toDestLine);
+  car.setLatLng(DRIVER0); setProg(0);
+  setStatus('Driver assigned', 'Karachi · Clifton → Saddar');
+
+  const leg1 = await osrm(DRIVER0, PICKUP);
+  const leg2 = await osrm(PICKUP, DROPOFF);
+  $('note').style.display = 'none';
+  toPickupLine = L.polyline(leg1.path, { color: '#5d6f79', weight: 4, dashArray: '2 8', opacity: .8 }).addTo(map);
+  toDestLine = L.polyline(leg2.path, { color: '#d8973c', weight: 6, opacity: .95 }).addTo(map);
+  map.fitBounds(L.latLngBounds(leg1.path.concat(leg2.path)).pad(0.25));
+
+  let eta = Math.max(20, Math.round(leg1.dur));
+  setStatus('Driver is on the way', 'Arriving in ~' + Math.ceil(eta/60) + ' min');
+  const tick = setInterval(() => { eta--; if (eta >= 0) $('eta').textContent = 'Arriving in ' + eta + 's'; }, 1000);
+
+  animate(leg1.path, 8, () => {
+    clearInterval(tick);
+    setStatus('Your driver has arrived', 'Omar is at your pickup point');
+    document.querySelector('.badge').textContent = 'Boarding';
+    setTimeout(() => {
+      setStatus('On the way to Saddar', 'Enjoy your ride');
+      if (toPickupLine) map.removeLayer(toPickupLine);
+      animate(leg2.path, 10, () => {
+        setStatus('Trip complete', 'Fare Rs 320 · receipt sent');
+        document.querySelector('.badge').textContent = 'Rs 320';
+        setProg(1);
+      });
+    }, 1600);
+  });
+}
+
+$('replay').onclick = runRide;
+map.whenReady(runRide);
+</script>
+</body>
+</html>

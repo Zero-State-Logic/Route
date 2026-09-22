@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 500" width="900" height="500" role="img" aria-label="Route ride screen — a live map with a driver arriving and the ride card showing the assigned driver and fare">
+  <defs>
+    <linearGradient id="pbg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#22363f"/>
+      <stop offset="1" stop-color="#1a2a31"/>
+    </linearGradient>
+    <linearGradient id="proute" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#D8973C"/>
+      <stop offset="1" stop-color="#BD632F"/>
+    </linearGradient>
+    <clipPath id="mapclip"><rect x="352" y="24" width="524" height="452" rx="16"/></clipPath>
+    <filter id="pcard" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="500" rx="20" fill="url(#pbg)"/>
+
+  <!-- ============ LEFT: ride card ============ -->
+  <g filter="url(#pcard)">
+    <rect x="24" y="24" width="304" height="452" rx="16" fill="#2b444e"/>
+  </g>
+  <rect x="24" y="24" width="304" height="452" rx="16" fill="none" stroke="#D8973C" stroke-opacity="0.55" stroke-width="1.5"/>
+
+  <text x="48" y="66" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="20" font-weight="800" fill="#F3ECD9">Driver arriving</text>
+  <text x="48" y="90" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="13.5" fill="#D8C99B" fill-opacity="0.85">Arrives in ~4 min · stay near the pin</text>
+
+  <!-- progress bar -->
+  <rect x="48" y="108" width="256" height="8" rx="4" fill="#1c2e35"/>
+  <rect x="48" y="108" width="150" height="8" rx="4" fill="url(#proute)">
+    <animate attributeName="width" values="70;180;70" dur="4s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- driver row -->
+  <circle cx="72" cy="164" r="24" fill="#D8973C"/>
+  <text x="72" y="172" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="20" font-weight="800" fill="#273E47" text-anchor="middle">O</text>
+  <text x="108" y="158" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="16" font-weight="700" fill="#F3ECD9">Omar Khan</text>
+  <text x="108" y="178" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="13" fill="#D8C99B" fill-opacity="0.85">Suzuki Mehran · AEP-431 · ★ 4.9</text>
+
+  <!-- fare chip -->
+  <rect x="48" y="206" width="256" height="52" rx="10" fill="#22363f"/>
+  <text x="64" y="238" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="13" fill="#D8C99B" fill-opacity="0.85">Fare</text>
+  <text x="288" y="239" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="20" font-weight="800" fill="#F3ECD9" text-anchor="end">Rs 480</text>
+
+  <!-- breakdown -->
+  <g font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="12.5" fill="#D8C99B" fill-opacity="0.8">
+    <text x="48" y="288">7.2 km · ~15 min · Taxi</text>
+    <text x="48" y="310">base 100 · distance 115 · time 31</text>
+    <text x="48" y="330">fuel 188 (0.65 L) · fee 20</text>
+  </g>
+
+  <!-- pay button -->
+  <rect x="48" y="356" width="256" height="44" rx="10" fill="#D8973C"/>
+  <text x="176" y="384" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#273E47" text-anchor="middle">Pay with wallet · Rs 480</text>
+
+  <!-- safety row -->
+  <rect x="48" y="412" width="123" height="40" rx="10" fill="none" stroke="#A4243B" stroke-width="1.5"/>
+  <text x="109" y="437" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="13" font-weight="700" fill="#A4243B" text-anchor="middle">SOS</text>
+  <rect x="181" y="412" width="123" height="40" rx="10" fill="none" stroke="#D8C99B" stroke-opacity="0.5" stroke-width="1.5"/>
+  <text x="242" y="437" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="13" font-weight="700" fill="#D8C99B" text-anchor="middle">Share trip</text>
+
+  <!-- ============ RIGHT: map ============ -->
+  <rect x="352" y="24" width="524" height="452" rx="16" fill="#16242a"/>
+  <g clip-path="url(#mapclip)">
+    <!-- grid -->
+    <g stroke="#D8C99B" stroke-opacity="0.10" stroke-width="2">
+      <path d="M352 90 H876 M352 156 H876 M352 222 H876 M352 288 H876 M352 354 H876 M352 420 H876"/>
+      <path d="M430 24 V476 M510 24 V476 M590 24 V476 M670 24 V476 M750 24 V476 M830 24 V476"/>
+    </g>
+    <g stroke="#D8C99B" stroke-opacity="0.18" stroke-width="5" stroke-linecap="round">
+      <path d="M352 288 H876"/><path d="M590 24 V476"/>
+    </g>
+    <!-- river -->
+    <path d="M352 120 C 460 160, 560 90, 680 140 S 876 170, 900 150" fill="none" stroke="#2f5560" stroke-opacity="0.6" stroke-width="18" stroke-linecap="round"/>
+
+    <!-- route -->
+    <path d="M430 400 C 540 350, 600 400, 690 320 S 800 210, 820 150" fill="none" stroke="#273E47" stroke-opacity="0.6" stroke-width="12" stroke-linecap="round"/>
+    <path d="M430 400 C 540 350, 600 400, 690 320 S 800 210, 820 150" fill="none" stroke="url(#proute)" stroke-width="6" stroke-linecap="round" stroke-dasharray="2 12">
+      <animate attributeName="stroke-dashoffset" from="0" to="-56" dur="1.4s" repeatCount="indefinite"/>
+    </path>
+    <path d="M430 400 C 540 350, 600 400, 690 320 S 800 210, 820 150" fill="none" stroke="url(#proute)" stroke-width="6" stroke-linecap="round" stroke-opacity="0.5"/>
+
+    <!-- pickup -->
+    <circle cx="430" cy="400" r="9" fill="#A4243B"/>
+    <circle cx="430" cy="400" r="9" fill="none" stroke="#A4243B" stroke-width="2">
+      <animate attributeName="r" from="9" to="26" dur="2s" repeatCount="indefinite"/>
+      <animate attributeName="stroke-opacity" from="0.7" to="0" dur="2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="430" cy="400" r="3.5" fill="#F3ECD9"/>
+
+    <!-- destination -->
+    <g transform="translate(820,150)">
+      <circle r="9" fill="#BD632F"/><circle r="3.5" fill="#F3ECD9"/>
+      <rect x="7" y="-26" width="18" height="12" fill="#D8C99B"/>
+      <line x1="7" y1="-26" x2="7" y2="0" stroke="#D8C99B" stroke-width="2"/>
+    </g>
+
+    <!-- moving car -->
+    <g filter="url(#pcard)">
+      <g>
+        <rect x="-12" y="-8" width="24" height="16" rx="5" fill="#D8973C"/>
+        <rect x="-6" y="-8" width="12" height="7" rx="3" fill="#F3ECD9" fill-opacity="0.85"/>
+        <animateMotion dur="4.2s" repeatCount="indefinite" rotate="auto" path="M430 400 C 540 350, 600 400, 690 320 S 800 210, 820 150"/>
+      </g>
+    </g>
+  </g>
+  <!-- map attribution chip -->
+  <rect x="640" y="450" width="228" height="18" rx="9" fill="#0e171b" fill-opacity="0.7"/>
+  <text x="754" y="463" font-family="'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="10.5" fill="#D8C99B" fill-opacity="0.8" text-anchor="middle">MapLibre · OpenFreeMap · OpenStreetMap</text>
+</svg>

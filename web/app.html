@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route — plan a trip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/shared/styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><span class="logo">R</span> Route</a>
+  <nav class="nav">
+    <a href="/app.html">Trips</a>
+    <a href="/rentals.html">Rentals</a>
+    <a href="/rides.html">Rides</a>
+    <span id="who" class="muted"></span>
+    <a href="/manager.html">Operator console</a>
+    <a href="#" id="logout" style="display:none">Log out</a>
+  </nav>
+</header>
+<main class="wrap">
+
+  <section id="authView" class="panel" style="max-width:420px;margin:24px auto">
+    <h3 id="authTitle">Log in to Route</h3>
+    <div class="field" id="nameField" style="display:none">
+      <label>Full name</label><input id="fullName" placeholder="Alex Rivera" />
+    </div>
+    <div class="field"><label>Email</label><input id="email" type="email" placeholder="name@example.com" /></div>
+    <div class="field"><label>Password</label><input id="password" type="password" placeholder="At least 6 characters" /></div>
+    <p class="err" id="authErr"></p>
+    <button class="btn primary" id="authBtn" style="width:100%;justify-content:center">Log in</button>
+    <p class="muted" style="margin:12px 0 0;font-size:13px">
+      <span id="switchText">New here?</span>
+      <a href="#" id="switchLink">Create an account</a>
+    </p>
+  </section>
+
+  <div id="appView" style="display:none">
+    <div class="grid2">
+      <div>
+        <div class="panel">
+          <h3>Find a trip</h3>
+          <div class="field" style="max-width:220px">
+            <label>Mode</label>
+            <select id="mode">
+              <option value="">All modes</option>
+              <option>City bus</option><option>Intercity bus</option>
+              <option>Train</option><option>Bullet train</option>
+            </select>
+          </div>
+          <div id="tripList"></div>
+        </div>
+      </div>
+      <div>
+        <div class="panel" id="seatPanel" style="display:none">
+          <h3>Pick your seats · <span id="freeCount" class="tag">—</span></h3>
+          <div id="deck" class="deck"></div>
+          <div class="sumrow" style="margin-top:14px"><span>Selected</span><span id="selSeats" class="muted">None</span></div>
+          <div class="sumrow"><span>Total</span><span id="total">Rs 0</span></div>
+          <div class="sumrow total"><span>Pay</span><span id="grandTotal">Rs 0</span></div>
+          <p class="err" id="bookErr"></p>
+          <button class="btn primary" id="payBtn" style="width:100%;justify-content:center">Pay &amp; get receipt</button>
+        </div>
+        <div class="panel receipt" id="receiptPanel" style="display:none;padding:0;border:0">
+          <div class="rh">Payment received</div>
+          <div class="rb">
+            <div class="rrow"><span class="muted">Receipt no.</span><b id="rNo"></b></div>
+            <div class="rrow"><span class="muted">Seats</span><span id="rSeats"></span></div>
+            <div class="rrow"><span class="muted">Total paid</span><b id="rTotal"></b></div>
+            <a class="btn ghost" id="rPrint" style="margin-top:14px" target="_blank">Open printable receipt</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/shared/api.js"></script>
+<script src="/shared/pay.js"></script>
+<script>
+let signupMode = false, trips = [], selectedTrip = null, selected = {}, ws = null;
+
+function renderAuthUser() {
+  if (API.token && API.user) {
+    document.getElementById('authView').style.display = 'none';
+    document.getElementById('appView').style.display = 'block';
+    document.getElementById('who').textContent = API.user.full_name;
+    document.getElementById('logout').style.display = 'inline';
+    openSocket();
+    loadTrips();
+  } else {
+    document.getElementById('authView').style.display = 'block';
+    document.getElementById('appView').style.display = 'none';
+    document.getElementById('logout').style.display = 'none';
+    document.getElementById('who').textContent = '';
+  }
+}
+
+document.getElementById('switchLink').onclick = e => {
+  e.preventDefault(); signupMode = !signupMode;
+  document.getElementById('nameField').style.display = signupMode ? 'flex' : 'none';
+  document.getElementById('authTitle').textContent = signupMode ? 'Create your Route account' : 'Log in to Route';
+  document.getElementById('authBtn').textContent = signupMode ? 'Sign up' : 'Log in';
+  document.getElementById('switchText').textContent = signupMode ? 'Already have an account?' : 'New here?';
+  document.getElementById('switchLink').textContent = signupMode ? 'Log in' : 'Create an account';
+};
+
+document.getElementById('authBtn').onclick = async () => {
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const fullName = document.getElementById('fullName').value.trim();
+  const err = document.getElementById('authErr'); err.textContent = '';
+  if (!email || !password || (signupMode && !fullName)) { err.textContent = 'Please fill in all fields.'; return; }
+  try {
+    const data = signupMode
+      ? await API.post('/api/auth/signup', { email, password, full_name: fullName })
+      : await API.post('/api/auth/login', { email, password });
+    API.setAuth(data.token, data.user);
+    renderAuthUser();
+  } catch (ex) { err.textContent = ex.message; }
+};
+
+document.getElementById('logout').onclick = e => {
+  e.preventDefault(); API.clear(); if (ws) ws.close(); renderAuthUser();
+};
+
+document.getElementById('mode').onchange = loadTrips;
+
+async function loadTrips() {
+  const mode = document.getElementById('mode').value;
+  try {
+    trips = await API.get('/api/trips' + (mode ? '?mode=' + encodeURIComponent(mode) : ''));
+    const el = document.getElementById('tripList');
+    el.innerHTML = trips.map((t, i) =>
+      '<div class="trip" data-i="' + i + '"><div><div style="font-weight:600">' + esc(t.route) + '</div>'
+      + '<div class="muted" style="font-size:12.5px">' + esc(t.vehicle_label) + ' · ' + esc(t.mode) + '</div></div>'
+      + '<div style="text-align:right"><div class="price">Rs ' + Math.round(t.fare) + '</div>'
+      + '<div style="font-size:12px;font-weight:700;color:' + (t.free <= 6 ? 'var(--rose)' : 'var(--caramel)') + '">'
+      + t.free + ' seats left</div></div></div>').join('');
+    el.querySelectorAll('.trip').forEach(d => d.onclick = () => selectTrip(+d.dataset.i));
+  } catch (ex) { toast(ex.message); }
+}
+
+async function selectTrip(i) {
+  selectedTrip = trips[i]; selected = {};
+  document.querySelectorAll('.trip').forEach((d, j) => d.classList.toggle('sel', j === i));
+  document.getElementById('seatPanel').style.display = 'block';
+  document.getElementById('receiptPanel').style.display = 'none';
+  await loadSeats();
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ action: 'subscribe', topic: 'seats:' + selectedTrip.id }));
+  updateSummary();
+}
+
+async function loadSeats() {
+  const data = await API.get('/api/trips/' + selectedTrip.id + '/seats');
+  const deck = document.getElementById('deck'); deck.innerHTML = '';
+  const byLabel = {}; data.seats.forEach(s => byLabel[s.seat_label] = s.status);
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 5; c++) {
+      if (c === 2) { const a = document.createElement('div'); a.className = 'aisle'; deck.appendChild(a); continue; }
+      const label = String.fromCharCode(65 + r) + (c < 2 ? c + 1 : c);
+      const status = byLabel[label] || 'free';
+      const s = document.createElement('div');
+      s.className = 'seat ' + status; s.textContent = label; s.dataset.label = label;
+      if (status === 'free') s.onclick = () => toggleSeat(label, s);
+      deck.appendChild(s);
+    }
+  }
+  const free = data.seats.filter(s => s.status === 'free').length;
+  document.getElementById('freeCount').textContent = free + ' free';
+}
+
+function toggleSeat(label, node) {
+  if (selected[label]) { delete selected[label]; node.classList.remove('sel'); }
+  else { selected[label] = true; node.classList.add('sel'); }
+  updateSummary();
+}
+
+function updateSummary() {
+  const seats = Object.keys(selected);
+  const fare = selectedTrip ? selectedTrip.fare : 0;
+  const sub = fare * seats.length;
+  document.getElementById('selSeats').textContent = seats.length ? seats.join(', ') : 'None';
+  document.getElementById('total').textContent = 'Rs ' + Math.round(sub);
+  document.getElementById('grandTotal').textContent = 'Rs ' + (sub + 0.40).toFixed(2);
+}
+
+document.getElementById('payBtn').onclick = () => {
+  const seats = Object.keys(selected);
+  const err = document.getElementById('bookErr'); err.textContent = '';
+  if (!seats.length) { err.textContent = 'Select at least one seat.'; return; }
+  const fare = selectedTrip ? selectedTrip.fare : 0;
+  const total = fare * seats.length + 0.40;
+  openPay({
+    amount: total, symbol: 'Rs',
+    breakdown: [
+      ['Fare x ' + seats.length, 'Rs ' + Math.round(fare * seats.length)],
+      ['Total', 'Rs ' + total.toFixed(2)],
+    ],
+    onPaid: async () => {
+      try {
+        const data = await API.post('/api/bookings', { trip_id: selectedTrip.id, seats });
+        document.getElementById('rNo').textContent = data.receipt_no;
+        document.getElementById('rSeats').textContent = seats.join(', ');
+        document.getElementById('rTotal').textContent = 'Rs ' + data.total.toFixed(2);
+        document.getElementById('rPrint').href = '/api/receipts/' + data.receipt_no + '/print';
+        document.getElementById('receiptPanel').style.display = 'block';
+        selected = {}; await loadSeats(); updateSummary();
+        toast('Payment received · receipt ready');
+      } catch (ex) { err.textContent = ex.message; }
+    },
+  });
+};
+
+function openSocket() {
+  ws = liveSocket(msg => {
+    if (msg.type === 'seat.update' && selectedTrip && msg.trip_id === selectedTrip.id) {
+      const node = document.querySelector('.seat[data-label="' + msg.seat_label + '"]');
+      if (node && !node.classList.contains('sel')) {
+        node.className = 'seat ' + msg.status; node.onclick = null;
+        toast('Seat ' + msg.seat_label + ' was just booked');
+      }
+    }
+  });
+}
+
+renderAuthUser();
+</script>
+</body>
+</html>

@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route — rentals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/shared/styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><span class="logo">R</span> Route</a>
+  <nav class="nav">
+    <a href="/app.html">Trips</a>
+    <a href="/rentals.html">Rentals</a>
+    <a href="/rides.html">Rides</a>
+    <span id="who" class="muted"></span>
+  </nav>
+</header>
+<main class="wrap">
+  <div id="gate" class="panel" style="max-width:420px;margin:24px auto;display:none">
+    <h3>Log in first</h3>
+    <p class="muted">Rentals need an account. <a href="/app.html">Log in or sign up in the rider app</a>, then come back.</p>
+  </div>
+
+  <div id="content" style="display:none">
+    <div class="panel" id="activePanel" style="display:none;border-color:var(--accent)">
+      <h3>Ride in progress · <span id="actCode"></span></h3>
+      <div class="sumrow"><span>Elapsed</span><b id="elapsed">00:00</b></div>
+      <div class="sumrow"><span>Estimated so far</span><b id="running">Rs 0</b></div>
+      <button class="btn primary" id="stopBtn" style="width:100%;justify-content:center;margin-top:10px">End ride &amp; get receipt</button>
+    </div>
+
+    <div class="panel receipt" id="receiptPanel" style="display:none;padding:0;border:0">
+      <div class="rh">Ride complete</div>
+      <div class="rb">
+        <div class="rrow"><span class="muted">Receipt no.</span><b id="rNo"></b></div>
+        <div class="rrow"><span class="muted">Minutes</span><span id="rMin"></span></div>
+        <div class="rrow"><span class="muted">Total paid</span><b id="rTot"></b></div>
+        <a class="btn ghost" id="rPrint" style="margin-top:12px" target="_blank">Printable receipt</a>
+      </div>
+    </div>
+
+    <h2 style="margin:24px 0 4px">Rent by the minute</h2>
+    <p class="muted" style="margin:0 0 12px">Unlock a scooter, bike, or bicycle nearby. You only pay for the time you ride.</p>
+    <div class="field" style="max-width:200px">
+      <label>Type</label>
+      <select id="kind"><option value="">All</option><option>E-scooter</option><option>Bike</option><option>Bicycle</option></select>
+    </div>
+    <div class="modes" id="vehicles"></div>
+  </div>
+</main>
+
+<script src="/shared/api.js"></script>
+<script>
+let active = null, tick = null, ws = null, vehById = {};
+
+function guard() {
+  const ok = !!API.token;
+  document.getElementById('gate').style.display = ok ? 'none' : 'block';
+  document.getElementById('content').style.display = ok ? 'block' : 'none';
+  if (ok) { document.getElementById('who').textContent = API.user ? API.user.full_name : ''; init(); }
+}
+
+async function init() {
+  openSocket();
+  await refreshActive();
+  await loadVehicles();
+  document.getElementById('kind').onchange = loadVehicles;
+}
+
+async function loadVehicles() {
+  const kind = document.getElementById('kind').value;
+  try {
+    const list = await API.get('/api/rentals/vehicles' + (kind ? '?kind=' + encodeURIComponent(kind) : ''));
+    vehById = {}; list.forEach(v => vehById[v.id] = v);
+    document.getElementById('vehicles').innerHTML = list.map(v =>
+      '<div class="mode"><h4>' + esc(v.kind) + '</h4>'
+      + '<span>' + esc(v.code) + ' · Rs ' + Math.round(v.unlock_fee) + ' unlock + Rs ' + Math.round(v.per_min_rate) + '/min</span>'
+      + '<button class="btn primary" style="margin-top:12px;width:100%;justify-content:center" data-id="' + v.id + '">Unlock</button></div>').join('')
+      || '<p class="muted">No vehicles available right now.</p>';
+    document.querySelectorAll('#vehicles button').forEach(b => b.onclick = () => startRental(+b.dataset.id));
+  } catch (ex) { toast(ex.message); }
+}
+
+async function startRental(id) {
+  try {
+    const r = await API.post('/api/rentals/start', { vehicle_id: id });
+    const v = vehById[id] || {};
+    active = { rental_id: r.rental_id, code: r.code, started: new Date(r.started_at), perMin: +v.per_min_rate || 0, unlock: +v.unlock_fee || 0 };
+    document.getElementById('receiptPanel').style.display = 'none';
+    showActive(); await loadVehicles();
+    toast('Unlocked ' + r.code + ' — ride safe!');
+  } catch (ex) { toast(ex.message); }
+}
+
+async function refreshActive() {
+  try {
+    const list = await API.get('/api/rentals/active');
+    if (list.length) {
+      active = { rental_id: list[0].rental_id, code: list[0].code, started: new Date(list[0].started_at), perMin: +list[0].per_min_rate || 0, unlock: +list[0].unlock_fee || 0 };
+      showActive();
+    }
+  } catch (ex) {}
+}
+
+function showActive() {
+  const p = document.getElementById('activePanel');
+  p.style.display = 'block';
+  document.getElementById('actCode').textContent = active.code;
+  clearInterval(tick);
+  tick = setInterval(() => {
+    const secs = Math.max(0, Math.floor((Date.now() - active.started.getTime()) / 1000));
+    const mm = String(Math.floor(secs / 60)).padStart(2, '0');
+    const ss = String(secs % 60).padStart(2, '0');
+    document.getElementById('elapsed').textContent = mm + ':' + ss;
+    const running = (active.unlock || 0) + (active.perMin || 0) * (secs / 60);
+    document.getElementById('running').textContent = 'Rs ' + running.toFixed(2);
+  }, 1000);
+}
+
+document.getElementById('stopBtn').onclick = async () => {
+  if (!active) return;
+  try {
+    const r = await API.post('/api/rentals/stop', { rental_id: active.rental_id });
+    clearInterval(tick);
+    document.getElementById('activePanel').style.display = 'none';
+    document.getElementById('rNo').textContent = r.receipt_no;
+    document.getElementById('rMin').textContent = r.minutes + ' min';
+    document.getElementById('rTot').textContent = 'Rs ' + r.amount.toFixed(2);
+    document.getElementById('rPrint').href = '/api/receipts/' + r.receipt_no + '/print';
+    document.getElementById('receiptPanel').style.display = 'block';
+    active = null; await loadVehicles();
+    toast('Ride ended · receipt ready');
+  } catch (ex) { toast(ex.message); }
+};
+
+function openSocket() {
+  ws = liveSocket(() => {});
+  if (API.user) ws.addEventListener('open', () => ws.send(JSON.stringify({ action: 'subscribe', topic: 'user:' + API.user.id })));
+}
+
+guard();
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route — one city, every route home</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/shared/styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><span class="logo">R</span> Route</a>
+  <nav class="nav">
+    <a href="/app.html">Plan a trip</a>
+    <a href="/manager.html">Operator console</a>
+  </nav>
+</header>
+<main class="wrap">
+  <section class="hero">
+    <h1>One city.<br>Every <em>route</em> home.</h1>
+    <p>Book buses, trains, bullet trains, and taxis, or rent bikes and scooters by the minute — with real-time seat availability and instant digital receipts.</p>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <a class="btn primary" href="/app.html">Plan a trip →</a>
+      <a class="btn ghost" href="/manager.html">Operator console</a>
+    </div>
+  </section>
+  <h2 style="margin:32px 0 4px">Choose how you move</h2>
+  <p class="muted" style="margin:0 0 16px">Nine modes, one account, one wallet.</p>
+  <div class="modes" id="modes"></div>
+</main>
+<script>
+const MODES=[['City bus','Local routes'],['Intercity bus','City to city'],['Metro train','Fast & frequent'],['Bullet train','High speed'],['Taxi','Door to door'],['Cab','Shared rides'],['Bike rental','By the hour'],['E-scooter','By the minute'],['Bicycle','By the minute']];
+document.getElementById('modes').innerHTML = MODES.map(m =>
+  '<a class="mode" href="/app.html" style="text-decoration:none;color:inherit;display:block">'
+  + '<h4>' + m[0] + '</h4><span>' + m[1] + '</span></a>').join('');
+</script>
+</body>
+</html>

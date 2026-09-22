@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route — live trip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Hanken+Grotesk:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/shared/styles.css" />
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><span class="logo">R</span> Route</a>
+  <span class="muted" style="margin-left:auto">Live shared trip</span>
+</header>
+<main class="wrap" style="max-width:520px">
+  <div class="panel" id="card">
+    <h3 id="st">Loading trip…</h3>
+    <p class="muted" id="eta" style="margin:2px 0 12px"></p>
+    <div class="bar"><i id="prog" style="width:10%"></i></div>
+    <div class="sumrow"><span class="muted">Driver</span><b id="driver">—</b></div>
+    <div class="sumrow"><span class="muted">From</span><span id="from">—</span></div>
+    <div class="sumrow"><span class="muted">To</span><span id="to">—</span></div>
+    <p class="muted" id="err" style="font-size:13px;margin-top:10px"></p>
+  </div>
+  <p class="muted" style="font-size:12.5px;text-align:center;margin-top:12px">Someone shared this Route trip with you. It updates live.</p>
+</main>
+<script>
+const TXT = { requested: 'Finding a driver', assigned: 'Driver assigned', enroute: 'Driver on the way', arrived: 'Driver has arrived', in_trip: 'On the trip', completed: 'Trip complete', cancelled: 'Trip cancelled' };
+const PROG = { requested: 10, assigned: 25, enroute: 55, arrived: 80, in_trip: 90, completed: 100, cancelled: 100 };
+const token = new URLSearchParams(location.search).get('t') || '';
+
+async function load() {
+  if (!token) { document.getElementById('st').textContent = 'No trip link'; return; }
+  try {
+    const r = await fetch('/api/track/' + encodeURIComponent(token));
+    const j = await r.json();
+    if (!j.success) { document.getElementById('err').textContent = j.error || 'Trip not found'; return; }
+    const d = j.data;
+    document.getElementById('st').textContent = TXT[d.status] || d.status;
+    document.getElementById('eta').textContent = d.status === 'completed' ? 'This trip has ended.' : 'Following live…';
+    document.getElementById('prog').style.width = (PROG[d.status] || 10) + '%';
+    document.getElementById('driver').textContent = d.driver_label || '—';
+    document.getElementById('from').textContent = d.origin || '—';
+    document.getElementById('to').textContent = d.dest || '—';
+  } catch (e) { document.getElementById('err').textContent = 'Could not load trip'; }
+}
+load();
+setInterval(load, 3000);
+</script>
+</body>
+</html>

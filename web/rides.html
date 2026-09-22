@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route — rides</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" />
+<link rel="stylesheet" href="/shared/styles.css" />
+<style>
+  #map{height:460px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#eef1f5}
+  .segbtn{border:1px solid var(--line-2);background:var(--surface);color:var(--muted);font-weight:600;font-size:13px;padding:8px 12px;border-radius:9px;cursor:pointer}
+  .segbtn.active{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  .ride-card{margin-top:14px}
+  .ride-card .st{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:18px}
+  .bar{height:6px;border-radius:9px;background:var(--surface-3);overflow:hidden;margin:10px 0}
+  .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .5s ease}
+  .drv{display:flex;align-items:center;gap:12px;margin-top:8px}
+  .ava{width:44px;height:44px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font-family:"Bricolage Grotesque",sans-serif;font-weight:700}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><span class="logo">R</span> Route</a>
+  <nav class="nav">
+    <a href="/app.html">Trips</a>
+    <a href="/rentals.html">Rentals</a>
+    <a href="/rides.html">Rides</a>
+    <span id="who" class="muted"></span>
+  </nav>
+</header>
+<main class="wrap">
+  <div id="gate" class="panel" style="max-width:420px;margin:24px auto;display:none">
+    <h3>Log in first</h3>
+    <p class="muted">Rides need an account. <a href="/app.html">Log in or sign up in the rider app</a>, then come back.</p>
+  </div>
+
+  <div id="content" style="display:none">
+    <div class="grid2">
+      <div>
+        <div class="panel">
+          <h3>Book a ride</h3>
+          <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+            <button class="segbtn active" id="btnPickup">Set pickup</button>
+            <button class="segbtn" id="btnDrop">Set destination</button>
+            <button class="segbtn" id="btnGeo">Use my location</button>
+          </div>
+          <p class="muted" style="font-size:12.5px;margin:0 0 10px">Tap the map to drop the active pin (drag to fine-tune).</p>
+          <div class="field"><label>Pickup</label><input id="pickup" placeholder="Tap map or use my location" readonly /></div>
+          <div class="field"><label>Destination</label><input id="dest" placeholder="Tap map to set destination" readonly /></div>
+          <div class="field" style="max-width:200px"><label>Type</label>
+            <select id="mode"><option>Taxi</option><option>Cab</option></select></div>
+          <p class="muted" id="routeInfo" style="font-size:13px;min-height:18px"></p>
+          <p class="err" id="err"></p>
+          <button class="btn primary" id="reqBtn" style="width:100%;justify-content:center">Request ride</button>
+          <button class="btn ghost" id="bidBtn" style="width:100%;justify-content:center;margin-top:8px">Set your price (bid)</button>
+          <p style="margin:12px 0 0;font-size:12.5px" class="muted">Map not loading? <a href="#" id="cityBtn">Use the offline Route City map</a>.</p>
+
+          <div class="panel ride-card" id="rideCard" style="display:none;border-color:var(--accent);margin-top:16px">
+            <div class="st" id="rideSt">Driver assigned</div>
+            <div class="muted" id="rideEta" style="font-size:14px">Matching you with a driver…</div>
+            <div class="bar"><i id="prog"></i></div>
+            <div class="drv">
+              <div class="ava" id="ava">D</div>
+              <div><b id="drvName"></b><span class="muted" style="display:block;font-size:13px" id="drvCar"></span></div>
+              <span class="tag" id="fare" style="margin-left:auto"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div id="map"></div>
+      </div>
+    </div>
+
+    <h2 style="margin:24px 0 8px">Recent rides</h2>
+    <div class="panel" style="padding:0">
+      <div style="overflow-x:auto">
+        <table>
+          <thead><tr><th>From</th><th>To</th><th>Type</th><th>Driver</th><th>Fare</th><th>Status</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+<script src="/shared/api.js"></script>
+<script src="/shared/pay.js"></script>
+<script src="/shared/ridemap.js"></script>
+<script>
+let currentRide = null, ws = null, rm = null, lastQuote = null, rideFare = 0;
+const STATUS_TEXT = { assigned: 'Driver assigned', enroute: 'Your driver is on the way', arrived: 'Your driver has arrived', completed: 'Trip complete' };
+
+function guard() {
+  const ok = !!API.token;
+  document.getElementById('gate').style.display = ok ? 'none' : 'block';
+  document.getElementById('content').style.display = ok ? 'block' : 'none';
+  if (ok) { document.getElementById('who').textContent = API.user ? API.user.full_name : ''; init(); }
+}
+
+function initMap(forceCity) {
+  document.getElementById('map').innerHTML = '';
+  rm = RideMap.create('map', {
+    forceCity: !!forceCity,
+    onPick(which, pin) {
+      document.getElementById(which === 'pickup' ? 'pickup' : 'dest').value =
+        pin.label + '  (' + pin.lat.toFixed(4) + ', ' + pin.lng.toFixed(4) + ')';
+      const p = rm.getPins();
+      if (p.pickup && p.dropoff) { rm.previewRoute(); updateQuote(); }
+    },
+    onArrive() { setStatus('arrived'); setProg(1); },
+    onComplete() { setStatus('completed'); document.getElementById('fare').textContent = 'Paid'; loadRides(); },
+    onFallback() { toast('Live tiles unavailable — switched to the offline Route City map'); },
+  });
+}
+
+function init() { initMap(false); openSocket(); loadRides(); }
+
+document.getElementById('btnPickup').onclick = () => setSeg('pickup');
+document.getElementById('btnDrop').onclick = () => setSeg('dropoff');
+function setSeg(which) {
+  rm.setActive(which);
+  document.getElementById('btnPickup').classList.toggle('active', which === 'pickup');
+  document.getElementById('btnDrop').classList.toggle('active', which === 'dropoff');
+}
+document.getElementById('btnGeo').onclick = () => rm.useMyLocation(ok => { if (!ok) toast('Could not get your location — tap the map to set pickup'); });
+document.getElementById('cityBtn').onclick = e => { e.preventDefault(); initMap(true); toast('Showing the offline Route City map'); };
+
+function setStatus(s) {
+  document.getElementById('rideSt').textContent = STATUS_TEXT[s] || s;
+  if (s === 'arrived') document.getElementById('rideEta').textContent = 'Driver is at your pickup';
+  if (s === 'completed') document.getElementById('rideEta').textContent = 'Thanks for riding with Route';
+  if (s === 'assigned' && currentRide) showSafety(currentRide);
+}
+function setProg(p) { document.getElementById('prog').style.width = Math.round(p * 100) + '%'; }
+
+async function updateQuote() {
+  const p = rm.getPins(); if (!p.pickup || !p.dropoff) return;
+  const modeEl = document.getElementById('mode');
+  const mode = modeEl ? modeEl.value : 'Taxi';
+  try {
+    lastQuote = await API.post('/api/fare/quote', { mode, origin_lat: p.pickup.lat, origin_lng: p.pickup.lng, dest_lat: p.dropoff.lat, dest_lng: p.dropoff.lng });
+    const q = lastQuote;
+    document.getElementById('routeInfo').innerHTML =
+      '<b>' + q.symbol + ' ' + Math.round(q.total).toLocaleString() + '</b> · ' + q.distance_km.toFixed(1) + ' km · ~' + Math.max(1, Math.round(q.duration_min)) + ' min<br>' +
+      '<span style="font-size:12px;color:var(--faint)">base ' + q.symbol + q.base + ' + distance ' + q.symbol + Math.round(q.distance_cost) + ' + time ' + q.symbol + Math.round(q.time_cost) + ' + fuel ' + q.symbol + Math.round(q.fuel_cost) + ' (' + q.fuel_litres.toFixed(2) + ' L) + fee ' + q.symbol + q.booking_fee + (q.on_road ? '' : ' · est') + '</span>';
+  } catch (ex) {}
+}
+const modeSel = document.getElementById('mode'); if (modeSel) modeSel.onchange = updateQuote;
+
+document.getElementById('reqBtn').onclick = async () => {
+  const p = rm.getPins();
+  const err = document.getElementById('err'); err.textContent = '';
+  if (!p.pickup || !p.dropoff) { err.textContent = 'Set both a pickup and a destination on the map.'; return; }
+  const mode = document.getElementById('mode').value;
+  try {
+    const body = { origin: p.pickup.label, dest: p.dropoff.label, mode,
+      origin_lat: p.pickup.lat, origin_lng: p.pickup.lng, dest_lat: p.dropoff.lat, dest_lng: p.dropoff.lng };
+    if (lastQuote) body.fare_estimate = lastQuote.total;
+    const r = await API.post('/api/rides', body);
+    const sym = lastQuote ? lastQuote.symbol : 'Rs';
+    currentRide = r.ride_id;
+    document.getElementById('rideCard').style.display = 'block';
+    document.getElementById('drvName').textContent = r.driver_label;
+    document.getElementById('drvCar').textContent = mode + ' · fare ' + sym + ' ' + Math.round(r.fare_estimate).toLocaleString();
+    document.getElementById('ava').textContent = (r.driver_label || 'D').charAt(0);
+    document.getElementById('fare').textContent = sym + ' ' + Math.round(r.fare_estimate).toLocaleString();
+    rideFare = r.fare_estimate;
+    setStatus('assigned'); setProg(0.05);
+    rm.startRide(r.driver_start ? { lat: r.driver_start.lat, lng: r.driver_start.lng } : undefined);
+    loadRides();
+    toast('Driver assigned: ' + r.driver_label);
+  } catch (ex) { err.textContent = ex.message; }
+};
+
+async function loadRides() {
+  try {
+    const rides = await API.get('/api/rides');
+    document.getElementById('rows').innerHTML = rides.map(r =>
+      '<tr><td>' + esc(r.origin) + '</td><td>' + esc(r.dest) + '</td><td>' + esc(r.mode)
+      + '</td><td>' + esc(r.driver_label) + '</td><td>Rs ' + Math.round(r.fare_estimate).toLocaleString()
+      + '</td><td><span class="tag">' + esc(r.status) + '</span></td></tr>').join('')
+      || '<tr><td colspan="6" class="muted" style="padding:16px">No rides yet.</td></tr>';
+  } catch (ex) {}
+}
+
+function openSocket() {
+  ws = liveSocket(msg => {
+    if (msg.type === 'ride.status' && msg.ride_id === currentRide) {
+      setStatus(msg.status);
+      if (msg.status === 'enroute') setProg(0.4);
+      rm.onStatus(msg.status);   // 'arrived' triggers the pickup -> destination leg
+      if (msg.status === 'arrived') { setProg(1); showCompletion(); }
+      loadRides();
+    } else if (msg.type === 'surge.update') {
+      const p = rm && rm.getPins ? rm.getPins() : {};
+      if (p.pickup && p.dropoff) updateQuote();
+      if (msg.multiplier > 1.05) toast('Surge ' + Number(msg.multiplier).toFixed(1) + 'x — higher demand');
+    }
+  });
+  ws.addEventListener('open', () => {
+    if (API.user) ws.send(JSON.stringify({ action: 'subscribe', topic: 'user:' + API.user.id }));
+    ws.send(JSON.stringify({ action: 'subscribe', topic: 'pricing' }));
+  });
+}
+
+function showCompletion() {
+  if (document.getElementById('cmpBack')) return;
+  const sym = lastQuote ? lastQuote.symbol : 'Rs';
+  const back = document.createElement('div');
+  back.id = 'cmpBack';
+  back.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(13,24,38,.55);display:flex;align-items:flex-end;justify-content:center';
+  back.innerHTML =
+    '<div style="background:var(--surface);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px;font-family:var(--font)">' +
+    '<div style="width:40px;height:4px;border-radius:9px;background:var(--line-2);margin:0 auto 14px"></div>' +
+    '<h3 style="font-family:var(--display);margin:0 0 4px">You have arrived</h3>' +
+    '<p class="muted" style="margin:0 0 12px">Trip complete. Fare <b style="color:var(--ink)">' + sym + ' ' + Math.round(rideFare).toLocaleString() + '</b></p>' +
+    '<div id="cmpBody"></div></div>';
+  document.body.appendChild(back);
+  const body = back.querySelector('#cmpBody');
+  body.innerHTML = '<button class="btn primary" id="cmpPay" style="width:100%;justify-content:center">Pay ' + sym + ' ' + Math.round(rideFare).toLocaleString() + '</button>';
+  body.querySelector('#cmpPay').onclick = () => {
+    openPay({ amount: rideFare, symbol: sym, onPaid: async () => {
+      let rec = null;
+      try { rec = await API.post('/api/rides/' + currentRide + '/complete', {}); } catch (e) {}
+      renderRating(body, rec, sym);
+    }});
+  };
+}
+
+function renderRating(body, rec, sym) {
+  const rn = rec ? rec.receipt_no : '';
+  body.innerHTML =
+    '<div class="receipt" style="margin-bottom:12px"><div class="rh">Payment received</div>' +
+    '<div class="rb"><div class="rrow"><span class="muted">Receipt</span><b>' + esc(rn) + '</b></div>' +
+    '<div class="rrow"><span class="muted">Total paid</span><b>' + sym + ' ' + Math.round(rideFare).toLocaleString() + '</b></div>' +
+    (rn ? '<a class="btn ghost" target="_blank" style="margin-top:10px" href="/api/receipts/' + rn + '/print">Open receipt</a>' : '') + '</div></div>' +
+    '<div style="text-align:center;margin:8px 0;color:var(--muted)">Rate your ride</div>' +
+    '<div id="stars" style="display:flex;justify-content:center;gap:10px;font-size:32px;cursor:pointer;color:var(--accent)">' +
+    [1, 2, 3, 4, 5].map(i => '<span data-s="' + i + '">&#9734;</span>').join('') + '</div>' +
+    '<div style="display:flex;gap:8px;justify-content:center;margin:14px 0">' +
+    [50, 100, 150].map(t => '<button class="btn ghost" data-tip="' + t + '">Tip ' + sym + ' ' + t + '</button>').join('') + '</div>' +
+    '<button class="btn primary" id="cmpDone" style="width:100%;justify-content:center">Done</button>';
+  let chosen = 0;
+  body.querySelectorAll('#stars span').forEach(sp => sp.onclick = async () => {
+    chosen = +sp.dataset.s;
+    body.querySelectorAll('#stars span').forEach(x => x.innerHTML = (+x.dataset.s <= chosen) ? '&#9733;' : '&#9734;');
+    try { await API.post('/api/rides/' + currentRide + '/rate', { stars: chosen }); } catch (e) {}
+  });
+  body.querySelectorAll('[data-tip]').forEach(b => b.onclick = async () => {
+    try { await API.post('/api/rides/' + currentRide + '/tip', { amount: +b.dataset.tip }); toast('Tip added'); } catch (e) {}
+  });
+  body.querySelector('#cmpDone').onclick = () => {
+    document.getElementById('cmpBack').remove();
+    document.getElementById('rideCard').style.display = 'none';
+    toast('Thanks for riding with Route');
+  };
+}
+
+function openBidding() {
+  const p = rm.getPins();
+  if (!p.pickup || !p.dropoff) { document.getElementById('err').textContent = 'Set pickup and destination first.'; return; }
+  const sym = lastQuote ? lastQuote.symbol : 'Rs';
+  const suggested = lastQuote ? Math.round(lastQuote.total) : 300;
+  const back = document.createElement('div');
+  back.id = 'bidBack';
+  back.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(13,24,38,.55);display:flex;align-items:flex-end;justify-content:center';
+  back.innerHTML =
+    '<div style="background:var(--surface);width:100%;max-width:520px;border-radius:18px 18px 0 0;padding:20px;font-family:var(--font)">' +
+    '<div style="width:40px;height:4px;border-radius:9px;background:var(--line-2);margin:0 auto 14px"></div>' +
+    '<h3 style="font-family:var(--display);margin:0 0 6px">Name your fare</h3>' +
+    '<p class="muted" style="margin:0 0 10px">Suggested ' + sym + ' ' + suggested + '. Offer ' + sym + ' ' + Math.round(suggested * 0.6) + '–' + Math.round(suggested * 1.4) + '.</p>' +
+    '<div style="display:flex;gap:8px"><input id="offerFare" type="number" value="' + suggested + '" style="flex:1;border:1px solid var(--line-2);background:var(--surface-2);border-radius:9px;padding:11px 12px;font-size:16px;color:var(--ink)" />' +
+    '<button class="btn primary" id="sendOffer">Send offer</button></div>' +
+    '<p class="err" id="offerErr"></p><div id="bidList" style="margin-top:8px"></div>' +
+    '<button class="btn ghost" id="bidCancel" style="width:100%;justify-content:center;margin-top:10px">Cancel</button></div>';
+  document.body.appendChild(back);
+  document.getElementById('bidCancel').onclick = () => back.remove();
+  back.addEventListener('click', e => { if (e.target === back) back.remove(); });
+  document.getElementById('sendOffer').onclick = async () => {
+    const mode = document.getElementById('mode').value;
+    const of = +document.getElementById('offerFare').value;
+    try {
+      const res = await API.post('/api/rides/offer', { mode, origin: p.pickup.label, dest: p.dropoff.label, origin_lat: p.pickup.lat, origin_lng: p.pickup.lng, dest_lat: p.dropoff.lat, dest_lng: p.dropoff.lng, offer_fare: of });
+      renderBids(res, sym);
+    } catch (ex) { document.getElementById('offerErr').textContent = ex.message; }
+  };
+}
+function renderBids(res, sym) {
+  const list = document.getElementById('bidList');
+  if (!res.bids || !res.bids.length) { list.innerHTML = '<p class="muted">No drivers available right now.</p>'; return; }
+  list.innerHTML = '<div class="muted" style="margin:6px 0">Driver offers (you offered ' + sym + ' ' + Math.round(res.offer_fare) + '):</div>' +
+    res.bids.map(bd => '<div class="trip" data-bid="' + bd.bid_id + '"><div><div style="font-weight:600">' + esc(bd.driver_label) + '</div><div class="muted" style="font-size:12.5px">ETA ' + bd.eta_min + ' min</div></div><div class="price">' + sym + ' ' + Math.round(bd.bid_fare) + '</div></div>').join('');
+  list.querySelectorAll('[data-bid]').forEach(el => el.onclick = async () => {
+    try {
+      const r = await API.post('/api/rides/offer/' + res.offer_id + '/accept', { bid_id: +el.dataset.bid });
+      document.getElementById('bidBack').remove();
+      startRideFromResponse(r, sym);
+    } catch (ex) { document.getElementById('offerErr').textContent = ex.message; }
+  });
+}
+function startRideFromResponse(r, sym) {
+  currentRide = r.ride_id; rideFare = r.fare_estimate;
+  document.getElementById('rideCard').style.display = 'block';
+  document.getElementById('drvName').textContent = r.driver_label;
+  document.getElementById('drvCar').textContent = (r.mode || 'Taxi') + ' · fare ' + sym + ' ' + Math.round(r.fare_estimate).toLocaleString();
+  document.getElementById('ava').textContent = (r.driver_label || 'D').charAt(0);
+  document.getElementById('fare').textContent = sym + ' ' + Math.round(r.fare_estimate).toLocaleString();
+  setStatus('assigned'); setProg(0.05);
+  rm.startRide(r.driver_start ? { lat: r.driver_start.lat, lng: r.driver_start.lng } : undefined);
+  loadRides();
+  toast('Driver assigned: ' + r.driver_label);
+}
+document.getElementById('bidBtn').onclick = openBidding;
+
+async function showSafety(rideId) {
+  const old = document.getElementById('safetyRow');
+  if (old) old.remove();
+  let info = null;
+  try { info = await API.get('/api/rides/' + rideId + '/safety'); } catch (e) { return; }
+  const card = document.getElementById('rideCard');
+  const row = document.createElement('div');
+  row.id = 'safetyRow';
+  row.style.cssText = 'margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+  row.innerHTML = '<span class="tag">PIN ' + esc(info.pin) + '</span>' +
+    '<button class="btn ghost" id="shareBtn" style="padding:8px 12px">Share trip</button>' +
+    '<button class="btn ghost" id="sosBtn" style="padding:8px 12px;border-color:var(--rose);color:var(--rose)">SOS</button>';
+  card.appendChild(row);
+  document.getElementById('shareBtn').onclick = () => window.open(location.origin + info.share_url, '_blank');
+  document.getElementById('sosBtn').onclick = async () => {
+    let lat = 0, lng = 0;
+    try { const p = rm.getPins().pickup; if (p) { lat = p.lat; lng = p.lng; } } catch (e) {}
+    try { await API.post('/api/rides/' + rideId + '/sos', { lat, lng }); toast('SOS sent to the safety desk'); } catch (ex) { toast(ex.message); }
+  };
+}
+
+guard();
+</script>
+</body>
+</html>

@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Route — operator console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/shared/styles.css" />
+<style>
+  .seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .seg button{border:1px solid var(--line-2);background:var(--surface);color:var(--muted);font-weight:600;font-size:13px;padding:8px 14px;border-radius:9px;cursor:pointer}
+  .seg button.active{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  .tag.avail{background:var(--accent-soft);color:var(--accent-ink)}
+  .tag.use{background:var(--caramel-soft);color:var(--caramel)}
+  .tag.maint{background:var(--rose-soft);color:var(--rose)}
+  .abtn{border:1px solid var(--line-2);background:var(--surface);color:var(--ink);font-weight:600;font-size:12px;padding:5px 10px;border-radius:8px;cursor:pointer}
+  .abtn:hover{border-color:var(--accent)}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/"><span class="logo">R</span> Route <span class="muted" style="font-size:13px;font-weight:600">Operator</span></a>
+  <nav class="nav">
+    <span id="who" class="muted"></span>
+    <a href="/app.html">Rider app</a>
+    <a href="#" id="logout" style="display:none">Log out</a>
+  </nav>
+</header>
+<main class="wrap">
+
+  <section id="authView" class="panel" style="max-width:420px;margin:24px auto">
+    <h3>Operator sign in</h3>
+    <div class="field"><label>Email</label><input id="email" type="email" placeholder="ops@route.org" /></div>
+    <div class="field"><label>Password</label><input id="password" type="password" /></div>
+    <p class="err" id="authErr"></p>
+    <button class="btn primary" id="authBtn" style="width:100%;justify-content:center">Log in</button>
+    <p class="muted" style="font-size:12px;margin:12px 0 0">Tip: sign up in the rider app with role "manager", or promote a user in the database.</p>
+  </section>
+
+  <div id="appView" style="display:none">
+    <div class="kpis">
+      <div class="kpi"><div class="lab">Trips running</div><div class="val" id="kTrips">—</div></div>
+      <div class="kpi"><div class="lab">Fleet occupancy</div><div class="val" id="kOcc">—</div></div>
+      <div class="kpi"><div class="lab">Active rentals</div><div class="val" id="kRentals">—</div></div>
+      <div class="kpi"><div class="lab">Rides logged</div><div class="val" id="kRides">—</div></div>
+    </div>
+
+    <div class="panel" id="surgePanel" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <b>Surge pricing</b>
+      <span id="surgeVal" class="tag">1.0x</span>
+      <span class="muted" id="surgeMode" style="font-size:12px"></span>
+      <span style="flex:1"></span>
+      <button class="abtn" data-surge="1.0">1.0x</button>
+      <button class="abtn" data-surge="1.5">1.5x</button>
+      <button class="abtn" data-surge="2.0">2.0x</button>
+      <button class="abtn" id="surgeAuto">Auto</button>
+    </div>
+
+    <div class="seg">
+      <button data-view="trips" class="active">Live trips</button>
+      <button data-view="rides">Rides</button>
+      <button data-view="rentals">Rentals</button>
+      <button data-view="fleet">Fleet</button>
+      <button data-view="drivers">Drivers</button>
+      <button data-view="safety">Safety</button>
+    </div>
+
+    <div class="panel">
+      <h3 id="panelTitle">Live trips</h3>
+      <div style="overflow-x:auto"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+    </div>
+  </div>
+</main>
+
+<script src="/shared/api.js"></script>
+<script>
+let ws = null, view = 'trips';
+
+function render() {
+  const authed = API.token && API.user && (API.user.role === 'manager' || API.user.role === 'admin');
+  document.getElementById('authView').style.display = authed ? 'none' : 'block';
+  document.getElementById('appView').style.display = authed ? 'block' : 'none';
+  document.getElementById('logout').style.display = authed ? 'inline' : 'none';
+  document.getElementById('who').textContent = authed ? API.user.full_name : '';
+  if (authed) { openSocket(); loadKpis(); loadSurge(); wireSurge(); showView('trips'); }
+}
+
+document.getElementById('authBtn').onclick = async () => {
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  const err = document.getElementById('authErr'); err.textContent = '';
+  if (!email || !password) { err.textContent = 'Enter email and password.'; return; }
+  try {
+    const data = await API.post('/api/auth/login', { email, password });
+    if (data.user.role !== 'manager' && data.user.role !== 'admin') { err.textContent = 'This account is not an operator.'; return; }
+    API.setAuth(data.token, data.user); render();
+  } catch (ex) { err.textContent = ex.message; }
+};
+document.getElementById('logout').onclick = e => { e.preventDefault(); API.clear(); if (ws) ws.close(); render(); };
+document.querySelectorAll('.seg button').forEach(b => b.onclick = () => showView(b.dataset.view));
+
+function head(cols) { document.getElementById('thead').innerHTML = '<tr>' + cols.map(c => '<th>' + c + '</th>').join('') + '</tr>'; }
+function rowsHtml(rows) { document.getElementById('tbody').innerHTML = rows.length ? rows.join('') : '<tr><td colspan="8" class="muted" style="padding:16px">Nothing here yet.</td></tr>'; }
+
+async function showView(v) {
+  view = v;
+  document.querySelectorAll('.seg button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  document.getElementById('panelTitle').textContent = { trips: 'Live trips', rides: 'Rides', rentals: 'Rentals', fleet: 'Fleet', drivers: 'Drivers (live)', safety: 'Safety desk' }[v];
+  try {
+    if (v === 'trips') {
+      const t = await API.get('/api/trips');
+      head(['Route', 'Vehicle', 'Mode', 'Fare', 'Seats free']);
+      rowsHtml(t.map(x => '<tr><td>' + esc(x.route) + '</td><td>' + esc(x.vehicle_label) + '</td><td>' + esc(x.mode) + '</td><td>Rs ' + Math.round(x.fare).toLocaleString() + '</td><td>' + x.free + ' / ' + x.seat_count + '</td></tr>'));
+    } else if (v === 'rides') {
+      const r = await API.get('/api/manager/rides');
+      head(['Rider', 'From', 'To', 'Type', 'Driver', 'Fare', 'Status', '']);
+      rowsHtml(r.map(x => '<tr><td>' + esc(x.rider) + '</td><td>' + esc(x.origin) + '</td><td>' + esc(x.dest) + '</td><td>' + esc(x.mode) + '</td><td>' + esc(x.driver_label) + '</td><td>Rs ' + Math.round(x.fare_estimate).toLocaleString() + '</td><td><span class="tag">' + esc(x.status) + '</span></td><td>' + (['completed', 'cancelled'].includes(x.status) ? '' : '<button class="abtn" data-act="/api/manager/rides/' + x.ride_id + '/cancel">Cancel</button>') + '</td></tr>'));
+    } else if (v === 'rentals') {
+      const r = await API.get('/api/manager/rentals');
+      head(['Rider', 'Vehicle', 'Type', 'Started', 'Minutes', 'Amount', 'Status', '']);
+      rowsHtml(r.map(x => '<tr><td>' + esc(x.rider) + '</td><td>' + esc(x.code) + '</td><td>' + esc(x.kind) + '</td><td>' + esc(String(x.started_at).replace('T', ' ').slice(0, 16)) + '</td><td>' + (x.minutes || '—') + '</td><td>' + (x.amount ? 'Rs ' + Math.round(x.amount).toLocaleString() : '—') + '</td><td><span class="tag">' + esc(x.status) + '</span></td><td>' + (x.status === 'active' ? '<button class="abtn" data-act="/api/manager/rentals/' + x.rental_id + '/end">Force end</button>' : '') + '</td></tr>'));
+    } else if (v === 'fleet') {
+      const f = await API.get('/api/manager/fleet');
+      head(['Code', 'Type', 'Status', '']);
+      const cls = { available: 'avail', in_use: 'use', maintenance: 'maint' };
+      rowsHtml(f.map(x => '<tr><td>' + esc(x.code) + '</td><td>' + esc(x.kind) + '</td><td><span class="tag ' + (cls[x.status] || '') + '">' + esc(x.status.replace('_', ' ')) + '</span></td><td><button class="abtn" data-act="/api/manager/vehicles/' + x.id + '/status" data-status="' + (x.status === 'available' ? 'maintenance' : 'available') + '">' + (x.status === 'available' ? 'Set maintenance' : 'Make available') + '</button></td></tr>'));
+    } else if (v === 'safety') {
+      const s = await API.get('/api/manager/sos');
+      head(['Rider', 'Ride', 'Raised', '']);
+      rowsHtml(s.map(x => '<tr><td>' + esc(x.rider || '—') + '</td><td>#' + x.ride_id + '</td><td>' + esc(String(x.created_at).replace('T', ' ').slice(0, 16)) + '</td><td><button class="abtn" data-act="/api/manager/sos/' + x.id + '/resolve">Resolve</button></td></tr>'));
+    } else if (v === 'drivers') {
+      const u = await API.get('/api/manager/live/units');
+      head(['Driver', 'Vehicle', 'Plate', 'Rating', 'Status']);
+      const dcls = { online: 'avail', on_trip: 'use', offline: 'maint' };
+      rowsHtml(u.map(x => '<tr><td>' + esc(x.name) + '</td><td>' + esc(x.vehicle) + '</td><td>' + esc(x.plate) + '</td><td>' + Number(x.rating).toFixed(1) + '</td><td><span class="tag ' + (dcls[x.status] || '') + '">' + esc(String(x.status).replace('_', ' ')) + '</span></td></tr>'));
+    }
+    wireActions();
+  } catch (ex) { toast(ex.message); rowsHtml([]); }
+}
+
+function wireActions() {
+  document.querySelectorAll('#tbody [data-act]').forEach(b => b.onclick = async () => {
+    try {
+      await API.post(b.dataset.act, b.dataset.status ? { status: b.dataset.status } : {});
+      toast('Updated');
+      showView(view); loadKpis();
+    } catch (ex) { toast(ex.message); }
+  });
+}
+
+async function loadKpis() {
+  try {
+    const trips = await API.get('/api/trips');
+    document.getElementById('kTrips').textContent = trips.length;
+    const seats = trips.reduce((a, t) => a + t.seat_count, 0), free = trips.reduce((a, t) => a + t.free, 0);
+    document.getElementById('kOcc').textContent = seats ? Math.round(100 * (seats - free) / seats) + '%' : '0%';
+  } catch (ex) {}
+  try { const rentals = await API.get('/api/manager/rentals'); document.getElementById('kRentals').textContent = rentals.filter(r => r.status === 'active').length; } catch (ex) {}
+  try { const rides = await API.get('/api/manager/rides'); document.getElementById('kRides').textContent = rides.length; } catch (ex) {}
+}
+
+function openSocket() {
+  ws = liveSocket(msg => {
+    if (msg.type === 'ops.tick') document.getElementById('kOcc').textContent = msg.occupancy_pct + '%';
+    else if (msg.type === 'surge.update') setSurgeDisplay(msg.multiplier, msg.manual);
+    else if (msg.type === 'sos.raised') { toast('SOS from a rider — open the Safety desk'); if (view === 'safety') showView('safety'); }
+  });
+  ws.addEventListener('open', () => ws.send(JSON.stringify({ action: 'subscribe', topic: 'ops:dashboard' })));
+  setInterval(() => { if (API.token) showView(view); }, 8000);
+}
+
+function setSurgeDisplay(m, manual) {
+  const el = document.getElementById('surgeVal'); if (!el) return;
+  el.textContent = Number(m).toFixed(1) + 'x';
+  document.getElementById('surgeMode').textContent = manual ? '(manual override)' : '(auto)';
+}
+async function loadSurge() {
+  try { const s = await API.get('/api/manager/surge'); setSurgeDisplay(s.multiplier, s.manual); } catch (ex) {}
+}
+function wireSurge() {
+  document.querySelectorAll('#surgePanel [data-surge]').forEach(b => b.onclick = async () => {
+    try { const s = await API.post('/api/manager/surge', { multiplier: +b.dataset.surge }); setSurgeDisplay(s.multiplier, s.manual); toast('Surge set to ' + (+b.dataset.surge).toFixed(1) + 'x'); } catch (ex) { toast(ex.message); }
+  });
+  const auto = document.getElementById('surgeAuto');
+  if (auto) auto.onclick = async () => { try { const s = await API.post('/api/manager/surge/auto', {}); setSurgeDisplay(s.multiplier, s.manual); toast('Surge back to auto'); } catch (ex) { toast(ex.message); } };
+}
+
+render();
+</script>
+</body>
+</html>

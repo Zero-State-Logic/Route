@@ -1,0 +1,34 @@
+{
+    "listeners":  [
+                      {
+                          "address":  "0.0.0.0",
+                          "port":  8080
+                      }
+                  ],
+    "app":  {
+                "document_root":  "./web",
+                "number_of_threads":  4,
+                "enable_session":  false,
+                "log":  {
+                            "log_level":  "INFO"
+                        }
+            },
+    "db_clients":  [
+                       {
+                           "name":  "default",
+                           "rdbms":  "postgresql",
+                           "host":  "127.0.0.1",
+                           "port":  5432,
+                           "dbname":  "route",
+                           "user":  "postgres",
+                           "passwd":  "CHANGE_ME_postgres_password",
+                           "connection_number":  4,
+                           "is_fast":  false
+                       }
+                   ],
+    "custom_config":  {
+                          "jwt_secret":  "CHANGE_ME_use_a_long_random_string_at_least_32_chars",
+                          "seat_hold_seconds":  600,
+                          "service_fee":  0.40
+                      }
+}

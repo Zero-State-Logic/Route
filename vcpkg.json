@@ -1,0 +1,11 @@
+{
+  "name": "route",
+  "version": "0.1.0",
+  "description": "Route - metropolitan transport platform (Drogon + PostgreSQL)",
+  "dependencies": [
+    { "name": "drogon", "features": ["ctl", "postgres"] },
+    "jwt-cpp",
+    "libharu",
+    "gtest"
+  ]
+}
